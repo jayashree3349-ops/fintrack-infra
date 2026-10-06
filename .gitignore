@@ -1,0 +1,36 @@
+# Environment files
+.env
+.env.*
+*.env
+
+# Secrets
+secrets/
+*.key
+*.pem
+*.crt
+
+# Logs
+*.log
+logs/
+
+# Docker
+docker-data/
+
+# Kubernetes
+*.secret.yaml
+*-secret.yaml
+
+# Jenkins
+jenkins/workspace/
+
+# OS
+.DS_Store
+Thumbs.db
+
+# Editors
+.vscode/
+.idea/
+
+# Temporary files
+*.tmp
+*.swp
