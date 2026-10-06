@@ -37,22 +37,20 @@ pipeline {
         }
 
         stage('Test Application') {
-            steps {
-                sh '''
-                    set -eu
+    steps {
+        sh '''
+            set -eu
 
-                    python3 --version || true
+            test -f docker/account-service/app/server.py
+            test -f docker/account-service/Dockerfile
 
-                    test -f docker/account-service/app/server.py
-                    test -f docker/account-service/Dockerfile
+            grep -q '"/health"' docker/account-service/app/server.py
+            grep -q '"/version"' docker/account-service/app/server.py
 
-                    grep -q '"/health"' docker/account-service/app/server.py
-                    grep -q '"/version"' docker/account-service/app/server.py
-
-                    echo "Application source checks passed"
-                '''
-            }
-        }
+            echo "Application source checks passed"
+        '''
+    }
+}
 
         stage('Docker Build') {
             steps {
@@ -95,73 +93,60 @@ pipeline {
                     '''
                 }
             }
-        }
+        
 
         stage('Deploy Canary') {
-            steps {
-                sh '''
-                    set -eu
+    steps {
+        sh '''
+            set -eu
 
-                    TOKEN=$(cat /var/run/secrets/kubernetes.io/serviceaccount/token)
-                    CACERT=/var/run/secrets/kubernetes.io/serviceaccount/ca.crt
-                    APISERVER="https://${KUBERNETES_SERVICE_HOST}:${KUBERNETES_SERVICE_PORT_HTTPS}"
+            echo "Deploying ${IMAGE} to ${DEPLOYMENT}"
 
-                    KUBECTL="kubectl \
-                      --server=${APISERVER} \
-                      --certificate-authority=${CACERT} \
-                      --token=${TOKEN}"
+            kubectl -n "${K8S_NAMESPACE}" \
+              set image deployment/"${DEPLOYMENT}" \
+              "${CONTAINER}"="${IMAGE}"
 
-                    echo "Deploying ${IMAGE} to ${DEPLOYMENT}"
+            kubectl -n "${K8S_NAMESPACE}" \
+              rollout status deployment/"${DEPLOYMENT}" \
+              --timeout=180s
+        '''
+    }
+}
 
-                    ${KUBECTL} -n "${K8S_NAMESPACE}" \
-                      set image deployment/"${DEPLOYMENT}" \
-                      "${CONTAINER}"="${IMAGE}"
-
-                    ${KUBECTL} -n "${K8S_NAMESPACE}" \
-                      rollout status deployment/"${DEPLOYMENT}" \
-                      --timeout=180s
-                '''
-            }
-        }
+            
 
         stage('Verify Canary') {
-            steps {
-                sh '''
-                    set -eu
+    steps {
+        sh '''
+            set -eu
 
-                    TOKEN=$(cat /var/run/secrets/kubernetes.io/serviceaccount/token)
-                    CACERT=/var/run/secrets/kubernetes.io/serviceaccount/ca.crt
-                    APISERVER="https://${KUBERNETES_SERVICE_HOST}:${KUBERNETES_SERVICE_PORT_HTTPS}"
+            echo "Checking deployment image..."
 
-                    KUBECTL="kubectl \
-                      --server=${APISERVER} \
-                      --certificate-authority=${CACERT} \
-                      --token=${TOKEN}"
+            kubectl -n "${K8S_NAMESPACE}" \
+              get deployment "${DEPLOYMENT}" \
+              -o jsonpath='{.spec.template.spec.containers[0].image}'
 
-                    echo "Checking deployment image..."
+            echo
 
-                    ${KUBECTL} -n "${K8S_NAMESPACE}" \
-                      get deployment "${DEPLOYMENT}" \
-                      -o jsonpath='{.spec.template.spec.containers[0].image}{"\n"}'
+            echo "Checking deployment availability..."
 
-                    echo "Checking deployment availability..."
+            kubectl -n "${K8S_NAMESPACE}" \
+              get deployment "${DEPLOYMENT}"
 
-                    ${KUBECTL} -n "${K8S_NAMESPACE}" \
-                      get deployment "${DEPLOYMENT}"
+            echo "Checking Istio routing..."
 
-                    echo "Checking Istio routing..."
+            kubectl -n "${K8S_NAMESPACE}" \
+              get virtualservice "${SERVICE}" -o yaml
 
-                    ${KUBECTL} -n "${K8S_NAMESPACE}" \
-                      get virtualservice "${SERVICE}" -o yaml
+            echo "Checking v1/v2 pods..."
 
-                    echo "Checking v1/v2 pods..."
-
-                    ${KUBECTL} -n "${K8S_NAMESPACE}" \
-                      get pods -l app=account-service -o wide
-                '''
-            }
-        }
+            kubectl -n "${K8S_NAMESPACE}" \
+              get pods -l app=account-service -o wide
+        '''
     }
+}
+
+          
 
     post {
         success {
