@@ -28,7 +28,7 @@ pipeline {
                         returnStdout: true
                     ).trim()
 
-                    env.IMAGE = "${REGISTRY_REPO}:${IMAGE_TAG}"
+                    env.IMAGE = "${REGISTRY_REPO}:${env.IMAGE_TAG}"
 
                     echo "Commit: ${env.GIT_COMMIT}"
                     echo "Immutable image: ${env.IMAGE}"
@@ -37,20 +37,20 @@ pipeline {
         }
 
         stage('Test Application') {
-    steps {
-        sh '''
-            set -eu
+            steps {
+                sh '''
+                    set -eu
 
-            test -f docker/account-service/app/server.py
-            test -f docker/account-service/Dockerfile
+                    test -f docker/account-service/app/server.py
+                    test -f docker/account-service/Dockerfile
 
-            grep -q '"/health"' docker/account-service/app/server.py
-            grep -q '"/version"' docker/account-service/app/server.py
+                    grep -q '"/health"' docker/account-service/app/server.py
+                    grep -q '"/version"' docker/account-service/app/server.py
 
-            echo "Application source checks passed"
-        '''
-    }
-}
+                    echo "Application source checks passed"
+                '''
+            }
+        }
 
         stage('Docker Build') {
             steps {
@@ -93,60 +93,57 @@ pipeline {
                     '''
                 }
             }
-        
+        }
 
         stage('Deploy Canary') {
-    steps {
-        sh '''
-            set -eu
+            steps {
+                sh '''
+                    set -eu
 
-            echo "Deploying ${IMAGE} to ${DEPLOYMENT}"
+                    echo "Deploying ${IMAGE} to ${DEPLOYMENT}"
 
-            kubectl -n "${K8S_NAMESPACE}" \
-              set image deployment/"${DEPLOYMENT}" \
-              "${CONTAINER}"="${IMAGE}"
+                    kubectl -n "${K8S_NAMESPACE}" \
+                      set image deployment/"${DEPLOYMENT}" \
+                      "${CONTAINER}"="${IMAGE}"
 
-            kubectl -n "${K8S_NAMESPACE}" \
-              rollout status deployment/"${DEPLOYMENT}" \
-              --timeout=180s
-        '''
-    }
-}
-
-            
+                    kubectl -n "${K8S_NAMESPACE}" \
+                      rollout status deployment/"${DEPLOYMENT}" \
+                      --timeout=180s
+                '''
+            }
+        }
 
         stage('Verify Canary') {
-    steps {
-        sh '''
-            set -eu
+            steps {
+                sh '''
+                    set -eu
 
-            echo "Checking deployment image..."
+                    echo "Checking deployment image..."
 
-            kubectl -n "${K8S_NAMESPACE}" \
-              get deployment "${DEPLOYMENT}" \
-              -o jsonpath='{.spec.template.spec.containers[0].image}'
+                    kubectl -n "${K8S_NAMESPACE}" \
+                      get deployment "${DEPLOYMENT}" \
+                      -o jsonpath='{.spec.template.spec.containers[0].image}'
 
-            echo
+                    echo
 
-            echo "Checking deployment availability..."
+                    echo "Checking deployment availability..."
 
-            kubectl -n "${K8S_NAMESPACE}" \
-              get deployment "${DEPLOYMENT}"
+                    kubectl -n "${K8S_NAMESPACE}" \
+                      get deployment "${DEPLOYMENT}"
 
-            echo "Checking Istio routing..."
+                    echo "Checking Istio routing..."
 
-            kubectl -n "${K8S_NAMESPACE}" \
-              get virtualservice "${SERVICE}" -o yaml
+                    kubectl -n "${K8S_NAMESPACE}" \
+                      get virtualservice "${SERVICE}" -o yaml
 
-            echo "Checking v1/v2 pods..."
+                    echo "Checking v1/v2 pods..."
 
-            kubectl -n "${K8S_NAMESPACE}" \
-              get pods -l app=account-service -o wide
-        '''
+                    kubectl -n "${K8S_NAMESPACE}" \
+                      get pods -l app=account-service -o wide
+                '''
+            }
+        }
     }
-}
-
-          
 
     post {
         success {
@@ -155,7 +152,6 @@ pipeline {
 
         failure {
             echo "FinTrack deployment failed."
-            echo "A manual rollback may be required until the automated rollback stage is enabled."
         }
 
         always {
