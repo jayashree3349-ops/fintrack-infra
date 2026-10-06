@@ -1,0 +1,9 @@
+apiVersion: kustomize.config.k8s.io/v1beta1
+kind: Kustomization
+
+resources:
+  - namespace.yaml
+  - resource-quota.yaml
+  - account-service-v1.yaml
+  - account-service-v2.yaml
+  - account-service-service.yaml
