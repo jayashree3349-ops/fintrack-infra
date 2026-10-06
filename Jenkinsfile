@@ -1,0 +1,182 @@
+pipeline {
+    agent any
+
+    options {
+        disableConcurrentBuilds()
+        timestamps()
+        timeout(time: 20, unit: 'MINUTES')
+    }
+
+    environment {
+        REGISTRY_REPO = 'dina98942/fintrack-account-service'
+        DOCKER_CREDENTIALS = 'dockerhub-creds'
+        K8S_NAMESPACE = 'fintrack'
+        DEPLOYMENT = 'account-service-v2'
+        CONTAINER = 'account-service'
+        SERVICE = 'account-service'
+    }
+
+    stages {
+
+        stage('Checkout') {
+            steps {
+                checkout scm
+
+                script {
+                    env.IMAGE_TAG = sh(
+                        script: 'git rev-parse --short=12 HEAD',
+                        returnStdout: true
+                    ).trim()
+
+                    env.IMAGE = "${REGISTRY_REPO}:${IMAGE_TAG}"
+
+                    echo "Commit: ${env.GIT_COMMIT}"
+                    echo "Immutable image: ${env.IMAGE}"
+                }
+            }
+        }
+
+        stage('Test Application') {
+            steps {
+                sh '''
+                    set -eu
+
+                    python3 --version || true
+
+                    test -f docker/account-service/app/server.py
+                    test -f docker/account-service/Dockerfile
+
+                    grep -q '"/health"' docker/account-service/app/server.py
+                    grep -q '"/version"' docker/account-service/app/server.py
+
+                    echo "Application source checks passed"
+                '''
+            }
+        }
+
+        stage('Docker Build') {
+            steps {
+                sh '''
+                    set -eu
+
+                    echo "Building ${IMAGE}"
+
+                    docker build \
+                      --pull \
+                      -t "${IMAGE}" \
+                      docker/account-service
+
+                    docker image inspect "${IMAGE}" >/dev/null
+
+                    echo "Docker build successful"
+                '''
+            }
+        }
+
+        stage('Docker Push') {
+            steps {
+                withCredentials([
+                    usernamePassword(
+                        credentialsId: "${DOCKER_CREDENTIALS}",
+                        usernameVariable: 'DOCKER_USERNAME',
+                        passwordVariable: 'DOCKER_PASSWORD'
+                    )
+                ]) {
+                    sh '''
+                        set -eu
+
+                        echo "${DOCKER_PASSWORD}" | docker login \
+                          --username "${DOCKER_USERNAME}" \
+                          --password-stdin
+
+                        docker push "${IMAGE}"
+
+                        docker logout
+                    '''
+                }
+            }
+        }
+
+        stage('Deploy Canary') {
+            steps {
+                sh '''
+                    set -eu
+
+                    TOKEN=$(cat /var/run/secrets/kubernetes.io/serviceaccount/token)
+                    CACERT=/var/run/secrets/kubernetes.io/serviceaccount/ca.crt
+                    APISERVER="https://${KUBERNETES_SERVICE_HOST}:${KUBERNETES_SERVICE_PORT_HTTPS}"
+
+                    KUBECTL="kubectl \
+                      --server=${APISERVER} \
+                      --certificate-authority=${CACERT} \
+                      --token=${TOKEN}"
+
+                    echo "Deploying ${IMAGE} to ${DEPLOYMENT}"
+
+                    ${KUBECTL} -n "${K8S_NAMESPACE}" \
+                      set image deployment/"${DEPLOYMENT}" \
+                      "${CONTAINER}"="${IMAGE}"
+
+                    ${KUBECTL} -n "${K8S_NAMESPACE}" \
+                      rollout status deployment/"${DEPLOYMENT}" \
+                      --timeout=180s
+                '''
+            }
+        }
+
+        stage('Verify Canary') {
+            steps {
+                sh '''
+                    set -eu
+
+                    TOKEN=$(cat /var/run/secrets/kubernetes.io/serviceaccount/token)
+                    CACERT=/var/run/secrets/kubernetes.io/serviceaccount/ca.crt
+                    APISERVER="https://${KUBERNETES_SERVICE_HOST}:${KUBERNETES_SERVICE_PORT_HTTPS}"
+
+                    KUBECTL="kubectl \
+                      --server=${APISERVER} \
+                      --certificate-authority=${CACERT} \
+                      --token=${TOKEN}"
+
+                    echo "Checking deployment image..."
+
+                    ${KUBECTL} -n "${K8S_NAMESPACE}" \
+                      get deployment "${DEPLOYMENT}" \
+                      -o jsonpath='{.spec.template.spec.containers[0].image}{"\n"}'
+
+                    echo "Checking deployment availability..."
+
+                    ${KUBECTL} -n "${K8S_NAMESPACE}" \
+                      get deployment "${DEPLOYMENT}"
+
+                    echo "Checking Istio routing..."
+
+                    ${KUBECTL} -n "${K8S_NAMESPACE}" \
+                      get virtualservice "${SERVICE}" -o yaml
+
+                    echo "Checking v1/v2 pods..."
+
+                    ${KUBECTL} -n "${K8S_NAMESPACE}" \
+                      get pods -l app=account-service -o wide
+                '''
+            }
+        }
+    }
+
+    post {
+        success {
+            echo "FinTrack deployment succeeded: ${env.IMAGE}"
+        }
+
+        failure {
+            echo "FinTrack deployment failed."
+            echo "A manual rollback may be required until the automated rollback stage is enabled."
+        }
+
+        always {
+            sh '''
+                docker logout >/dev/null 2>&1 || true
+            '''
+        }
+    }
+}
