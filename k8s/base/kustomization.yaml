@@ -7,3 +7,5 @@ resources:
   - account-service-v1.yaml
   - account-service-v2.yaml
   - account-service-service.yaml
+  - account-service-destination-rule.yaml
+  - account-service-virtual-service.yaml

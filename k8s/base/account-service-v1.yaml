@@ -17,6 +17,11 @@ spec:
       labels:
         app: account-service
         version: v1
+      annotations:
+        sidecar.istio.io/proxyCPU: "100m"
+        sidecar.istio.io/proxyCPULimit: "500m"
+        sidecar.istio.io/proxyMemory: "128Mi"
+        sidecar.istio.io/proxyMemoryLimit: "256Mi"
     spec:
       containers:
         - name: account-service
