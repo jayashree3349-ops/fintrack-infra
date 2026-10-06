@@ -34,3 +34,7 @@ Thumbs.db
 # Temporary files
 *.tmp
 *.swp
+
+# FinTrack lab configuration intentionally tracked
+!config/
+!config/application.env
