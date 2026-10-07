@@ -1,0 +1,57 @@
+groups:
+  - name: fintrack-canary
+    interval: 30s
+    rules:
+
+      - alert: FinTrackCanaryHigh5xx
+        expr: |
+          (
+            sum(
+              rate(
+                istio_requests_total{
+                  destination_service="account-service.fintrack.svc.cluster.local",
+                  destination_version="v2",
+                  response_code=~"5.."
+                }[5m]
+              )
+            )
+            /
+            sum(
+              rate(
+                istio_requests_total{
+                  destination_service="account-service.fintrack.svc.cluster.local",
+                  destination_version="v2"
+                }[5m]
+              )
+            )
+          ) > 0.05
+        for: 2m
+        labels:
+          severity: critical
+          service: account-service
+          canary: v2
+        annotations:
+          summary: "FinTrack v2 canary has elevated 5xx errors"
+          description: "The v2 canary is returning more than 5% 5xx responses."
+
+      - alert: FinTrackCanaryHighLatency
+        expr: |
+          histogram_quantile(
+            0.95,
+            sum by (le) (
+              rate(
+                istio_request_duration_milliseconds_bucket{
+                  destination_service="account-service.fintrack.svc.cluster.local",
+                  destination_version="v2"
+                }[5m]
+              )
+            )
+          ) > 500
+        for: 5m
+        labels:
+          severity: warning
+          service: account-service
+          canary: v2
+        annotations:
+          summary: "FinTrack v2 canary latency is high"
+          description: "The v2 canary p95 request latency exceeds 500ms."

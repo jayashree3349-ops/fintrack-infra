@@ -1,0 +1,100 @@
+groups:
+  - name: fintrack-kubernetes
+    interval: 30s
+    rules:
+
+      - alert: FinTrackDeploymentUnavailable
+        expr: |
+          kube_deployment_status_replicas_available{
+            namespace="fintrack",
+            deployment="account-service-v2"
+          } < 1
+        for: 2m
+        labels:
+          severity: critical
+          service: account-service
+        annotations:
+          summary: "FinTrack account-service-v2 unavailable"
+          description: "account-service-v2 has no available replicas for more than 2 minutes."
+
+      - alert: FinTrackPodCrashLooping
+        expr: |
+          increase(
+            kube_pod_container_status_restarts_total{
+              namespace="fintrack"
+            }[10m]
+          ) > 3
+        for: 5m
+        labels:
+          severity: critical
+          service: account-service
+        annotations:
+          summary: "FinTrack pod is repeatedly restarting"
+          description: "A FinTrack container restarted more than 3 times in 10 minutes."
+
+      - alert: FinTrackContainerOOMKilled
+        expr: |
+          increase(
+            kube_pod_container_status_last_terminated_reason{
+              namespace="fintrack",
+              reason="OOMKilled"
+            }[10m]
+          ) > 0
+        labels:
+          severity: critical
+          service: account-service
+        annotations:
+          summary: "FinTrack container was OOMKilled"
+          description: "A FinTrack container was terminated because it exceeded its memory limit."
+
+      - alert: FinTrackImagePullFailure
+        expr: |
+          kube_pod_container_status_waiting_reason{
+            namespace="fintrack",
+            reason=~"ImagePullBackOff|ErrImagePull"
+          } > 0
+        for: 2m
+        labels:
+          severity: critical
+          service: account-service
+        annotations:
+          summary: "FinTrack image pull failure"
+          description: "A FinTrack pod cannot pull its container image."
+
+      - alert: FinTrackHighCPU
+        expr: |
+          sum by (namespace, pod) (
+            rate(container_cpu_usage_seconds_total{
+              namespace="fintrack",
+              container!="",
+              image!=""
+            }[5m])
+          )
+          >
+          0.18
+        for: 5m
+        labels:
+          severity: warning
+          service: account-service
+        annotations:
+          summary: "FinTrack pod CPU usage is high"
+          description: "A FinTrack pod is using sustained high CPU."
+
+      - alert: FinTrackHighMemory
+        expr: |
+          sum by (namespace, pod) (
+            container_memory_working_set_bytes{
+              namespace="fintrack",
+              container!="",
+              image!=""
+            }
+          )
+          >
+          100663296
+        for: 5m
+        labels:
+          severity: warning
+          service: account-service
+        annotations:
+          summary: "FinTrack pod memory usage is high"
+          description: "A FinTrack pod is approaching its configured memory limit."
