@@ -1,0 +1,161 @@
+name: FinTrack PR Checks
+
+on:
+  pull_request:
+    branches:
+      - main
+      - develop
+  push:
+    branches:
+      - main
+      - develop
+
+permissions:
+  contents: read
+
+jobs:
+  validate:
+    name: Validate Kubernetes and application
+    runs-on: ubuntu-latest
+
+    steps:
+      - name: Checkout repository
+        uses: actions/checkout@v4
+
+      - name: Validate YAML
+        shell: bash
+        run: |
+          set -euo pipefail
+
+          python3 - <<'PY'
+          import pathlib
+          import yaml
+
+          files = list(pathlib.Path(".").rglob("*.yaml"))
+          files += list(pathlib.Path(".").rglob("*.yml"))
+
+          excluded = {
+              ".git",
+          }
+
+          checked = 0
+
+          for path in files:
+              if any(part in excluded for part in path.parts):
+                  continue
+
+              with path.open() as fh:
+                  list(yaml.safe_load_all(fh))
+
+              print(f"YAML OK: {path}")
+              checked += 1
+
+          print(f"Validated {checked} YAML files")
+          PY
+
+      - name: Validate Prometheus alert definitions
+        shell: bash
+        run: |
+          set -euo pipefail
+
+          python3 - <<'PY'
+          import yaml
+
+          files = [
+              "monitoring/prometheus/fintrack-alert-rules.yaml",
+              "monitoring/prometheus/canary-alerts.yaml",
+          ]
+
+          for filename in files:
+              with open(filename) as fh:
+                  data = yaml.safe_load(fh)
+
+              assert isinstance(data, dict)
+              assert data["groups"]
+
+              for group in data["groups"]:
+                  assert "name" in group
+                  assert "rules" in group
+
+                  for rule in group["rules"]:
+                      assert "alert" in rule
+                      assert "expr" in rule
+
+              print(f"Prometheus rules OK: {filename}")
+          PY
+
+      - name: Validate Kustomize
+        run: |
+          set -euo pipefail
+
+          kubectl kustomize k8s/base >/tmp/fintrack-kustomize.yaml
+
+          test -s /tmp/fintrack-kustomize.yaml
+
+          echo "Kustomize render succeeded"
+
+      - name: Validate application source
+        run: |
+          set -euo pipefail
+
+          test -f docker/account-service/Dockerfile
+          test -f docker/account-service/app/server.py
+
+          grep -q '"/health"' docker/account-service/app/server.py
+          grep -q '"/version"' docker/account-service/app/server.py
+          grep -q 'APP_VERSION' docker/account-service/app/server.py
+
+          echo "Application source checks passed"
+
+      - name: Build Docker image
+        run: |
+          set -euo pipefail
+
+          docker build \
+            --pull \
+            -t fintrack/account-service:ci \
+            docker/account-service
+
+          docker image inspect fintrack/account-service:ci >/dev/null
+
+          echo "Docker build succeeded"
+
+      - name: Run container smoke test
+        run: |
+          set -euo pipefail
+
+          docker run -d \
+            --name fintrack-account-service-ci \
+            -p 18080:8080 \
+            fintrack/account-service:ci
+
+          cleanup() {
+            docker rm -f fintrack-account-service-ci >/dev/null 2>&1 || true
+          }
+
+          trap cleanup EXIT
+
+          for attempt in $(seq 1 20); do
+            if curl -fsS http://127.0.0.1:18080/health >/dev/null; then
+              break
+            fi
+
+            if [ "$attempt" -eq 20 ]; then
+              echo "Application failed health check"
+              docker logs fintrack-account-service-ci
+              exit 1
+            fi
+
+            sleep 1
+          done
+
+          HEALTH=$(curl -fsS http://127.0.0.1:18080/health)
+          VERSION=$(curl -fsS http://127.0.0.1:18080/version)
+
+          echo "Health response: ${HEALTH}"
+          echo "Version response: ${VERSION}"
+
+          test "${HEALTH}" = "OK"
+          test "${VERSION}" = "account-service:v1"
+
+          echo "Container smoke test passed"
