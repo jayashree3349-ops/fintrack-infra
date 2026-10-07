@@ -72,34 +72,34 @@ pipeline {
             }
         }
 
-        stage('Docker Push') {
-            steps {
-                withCredentials([
-                    usernamePassword(
-                        credentialsId: "${DOCKER_CREDENTIALS}",
-                        usernameVariable: 'DOCKER_USERNAME',
-                        passwordVariable: 'DOCKER_PASSWORD'
-                    )
-                ]) {
-                    sh '''
-                        set -eu
+stage('Docker Push') {
+    steps {
+        withCredentials([
+            usernamePassword(
+                credentialsId: "${DOCKER_CREDENTIALS}",
+                usernameVariable: 'DOCKER_USERNAME',
+                passwordVariable: 'DOCKER_PASSWORD'
+            )
+        ]) {
+            sh '''
+                set -eu
 
-                        echo "${DOCKER_PASSWORD}" | docker login \
-                          --username "${DOCKER_USERNAME}" \
-                          --password-stdin
+                echo "${DOCKER_PASSWORD}" | docker login \
+                  --username "${DOCKER_USERNAME}" \
+                  --password-stdin
 
-                        docker push "${IMAGE}"
+                docker push "${IMAGE}"
 
-                        docker logout
-                    script {
-                          env.IMAGE = "${REGISTRY_REPO}:rollback-test-nonexistent-c751cdc"
-                          echo "Intentional rollback test image: ${env.IMAGE}"
-                    }
-                    '''
-                }
-            }
+                docker logout
+            '''
         }
 
+        script {
+            env.IMAGE = "${REGISTRY_REPO}:rollback-test-nonexistent-c751cdc"
+            echo "Intentional rollback test image: ${env.IMAGE}"
+        }
+    }
+}
         stage('Capture Current Image') {
             steps {
                 script {
