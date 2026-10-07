@@ -22,6 +22,10 @@ jobs:
       - name: Checkout repository
         uses: actions/checkout@v4
 
+      - name: Install validation dependencies
+        run: |
+          python3 -m pip install --disable-pip-version-check --no-cache-dir pyyaml
+
       - name: Validate YAML
         shell: bash
         run: |
@@ -85,6 +89,7 @@ jobs:
           PY
 
       - name: Validate Kustomize
+        shell: bash
         run: |
           set -euo pipefail
 
@@ -95,6 +100,7 @@ jobs:
           echo "Kustomize render succeeded"
 
       - name: Validate application source
+        shell: bash
         run: |
           set -euo pipefail
 
@@ -108,6 +114,7 @@ jobs:
           echo "Application source checks passed"
 
       - name: Build Docker image
+        shell: bash
         run: |
           set -euo pipefail
 
@@ -121,8 +128,11 @@ jobs:
           echo "Docker build succeeded"
 
       - name: Run container smoke test
+        shell: bash
         run: |
           set -euo pipefail
+
+          docker rm -f fintrack-account-service-ci >/dev/null 2>&1 || true
 
           docker run -d \
             --name fintrack-account-service-ci \
