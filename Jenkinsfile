@@ -30,7 +30,7 @@ pipeline {
                     ).trim()
 
                     env.IMAGE = "${REGISTRY_REPO}:${env.IMAGE_TAG}"
-                    env.IMAGE = "${REGISTRY_REPO}:does-not-exist"
+                    
                     echo "Commit: ${env.GIT_COMMIT}"
                     echo "Immutable image: ${env.IMAGE}"
                 }
@@ -91,6 +91,10 @@ pipeline {
                         docker push "${IMAGE}"
 
                         docker logout
+                    script {
+                          env.IMAGE = "${REGISTRY_REPO}:rollback-test-nonexistent-c751cdc"
+                          echo "Intentional rollback test image: ${env.IMAGE}"
+                    }
                     '''
                 }
             }
